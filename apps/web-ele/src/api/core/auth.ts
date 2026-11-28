@@ -1,51 +1,36 @@
-import { baseRequestClient, requestClient } from '#/api/request';
+import type { RouteRecordStringComponent } from '@vben/types';
 
-export namespace AuthApi {
-  /** 登录接口参数 */
-  export interface LoginParams {
-    password?: string;
-    username?: string;
-  }
+import { requestClient } from '#/api/request';
 
-  /** 登录接口返回值 */
-  export interface LoginResult {
-    accessToken: string;
-  }
-
-  export interface RefreshTokenResult {
-    data: string;
-    status: number;
-  }
+interface AdminAccessResponse {
+  user: {
+    homePath: string;
+    isSuper: boolean;
+    realName: string;
+    roles: null | string[];
+    userId: number;
+    username: string;
+  };
+  codes: string[];
+  menus: null | RouteRecordStringComponent[];
 }
 
-/**
- * 登录
- */
-export async function loginApi(data: AuthApi.LoginParams) {
-  return requestClient.post<AuthApi.LoginResult>('/auth/login', data);
+export function loginApi(data: { password: string; username: string }) {
+  return requestClient.post<{ accessToken: string; expiresAt: string }>(
+    '/auth/login',
+    data,
+  );
 }
 
-/**
- * 刷新accessToken
- */
-export async function refreshTokenApi() {
-  return baseRequestClient.post<AuthApi.RefreshTokenResult>('/auth/refresh', {
-    withCredentials: true,
-  });
+export function logoutApi() {
+  return requestClient.post<null>('/auth/logout');
 }
 
-/**
- * 退出登录
- */
-export async function logoutApi() {
-  return baseRequestClient.post('/auth/logout', {
-    withCredentials: true,
-  });
-}
-
-/**
- * 获取用户权限码
- */
-export async function getAccessCodesApi() {
-  return requestClient.get<string[]>('/auth/codes');
+export async function getAccessApi() {
+  const data = await requestClient.get<AdminAccessResponse>('/auth/access');
+  return {
+    ...data,
+    menus: data.menus ?? [],
+    user: { ...data.user, roles: data.user.roles ?? [] },
+  };
 }

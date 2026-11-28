@@ -1,42 +1,32 @@
-import type {
-  ComponentRecordType,
-  GenerateMenuAndRoutesOptions,
-} from '@vben/types';
+import type { Router } from 'vue-router';
+
+import type { RouteRecordStringComponent } from '@vben/types';
 
 import { generateAccessible } from '@vben/access';
-import { preferences } from '@vben/preferences';
 
-import { ElMessage } from 'element-plus';
+import { rootRoute } from './routes';
 
-import { getAllMenusApi } from '#/api';
-import { BasicLayout, IFrameView } from '#/layouts';
-import { $t } from '#/locales';
-
-const forbiddenComponent = () => import('#/views/_core/fallback/forbidden.vue');
-
-async function generateAccess(options: GenerateMenuAndRoutesOptions) {
-  const pageMap: ComponentRecordType = import.meta.glob('../views/**/*.vue');
-
-  const layoutMap: ComponentRecordType = {
-    BasicLayout,
-    IFrameView,
-  };
-
-  return await generateAccessible(preferences.app.accessMode, {
-    ...options,
-    fetchMenuListAsync: async () => {
-      ElMessage({
-        duration: 1500,
-        message: `${$t('common.loadingMenu')}...`,
-      });
-      return await getAllMenusApi();
-    },
-    // 可以指定没有权限跳转403页面
-    forbiddenComponent,
-    // 如果 route.meta.menuVisibleWithForbidden = true
-    layoutMap,
+// Explicit import map shared by all backend-driven routes.
+const pageMap = {
+  '/admin/articles.vue': () => import('#/views/admin/articles.vue'),
+  '/admin/accounts.vue': () => import('#/views/admin/accounts.vue'),
+  '/admin/groups.vue': () => import('#/views/admin/groups.vue'),
+  '/admin/nodes.vue': () => import('#/views/admin/nodes.vue'),
+  '/admin/audit.vue': () => import('#/views/admin/audit.vue'),
+};
+export function resetAccessRoutes(router: Router) {
+  router.removeRoute('Root');
+  router.addRoute(rootRoute());
+}
+export function installMenus(
+  router: Router,
+  menus: RouteRecordStringComponent[],
+) {
+  resetAccessRoutes(router);
+  return generateAccessible('backend', {
+    router,
+    routes: [],
     pageMap,
+    fetchMenuListAsync: async () => menus,
   });
 }
-
-export { generateAccess };

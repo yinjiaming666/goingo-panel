@@ -1,3 +1,5 @@
+import process from 'node:process';
+
 import { defineConfig } from '@vben/vite-config';
 
 import ElementPlus from 'unplugin-element-plus/vite';
@@ -13,12 +15,9 @@ export default defineConfig(async () => {
       ],
       server: {
         proxy: {
-          '/api': {
+          '/v1/api': {
             changeOrigin: true,
-            rewrite: (path) => path.replace(/^\/api/, ''),
-            // mock代理目标地址
-            target: 'http://localhost:5320/api',
-            ws: true,
+            target: process.env.GOINGO_API_ORIGIN || 'http://127.0.0.1:8081',
           },
         },
       },

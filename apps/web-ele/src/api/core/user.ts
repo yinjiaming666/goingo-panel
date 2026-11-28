@@ -1,10 +1,6 @@
-import type { UserInfo } from '@vben/types';
+import { getAccessApi } from './auth';
 
-import { requestClient } from '#/api/request';
-
-/**
- * 获取用户信息
- */
 export async function getUserInfoApi() {
-  return requestClient.get<UserInfo>('/user/info');
+  const { user } = await getAccessApi();
+  return user;
 }

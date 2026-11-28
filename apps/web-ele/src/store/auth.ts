@@ -1,118 +1,117 @@
-import type { Recordable, UserInfo } from '@vben/types';
-
 import { ref } from 'vue';
-import { useRouter } from 'vue-router';
 
 import { LOGIN_PATH } from '@vben/constants';
-import { preferences } from '@vben/preferences';
-import { resetAllStores, useAccessStore, useUserStore } from '@vben/stores';
+import {
+  resetAllStores,
+  useAccessStore,
+  useTabbarStore,
+  useUserStore,
+} from '@vben/stores';
 
-import { ElNotification } from 'element-plus';
 import { defineStore } from 'pinia';
 
-import { getAccessCodesApi, getUserInfoApi, loginApi, logoutApi } from '#/api';
-import { $t } from '#/locales';
+import { getAccessApi, loginApi, logoutApi } from '#/api';
+import { router } from '#/router';
+import { installMenus, resetAccessRoutes } from '#/router/access';
 
 export const useAuthStore = defineStore('auth', () => {
-  const accessStore = useAccessStore();
-  const userStore = useUserStore();
-  const router = useRouter();
-
+  const access = useAccessStore();
+  const users = useUserStore();
+  const tabs = useTabbarStore();
   const loginLoading = ref(false);
+  let signature = '';
+  let loading: Promise<void> | undefined;
 
-  /**
-   * 异步处理登录操作
-   * Asynchronously handle the login process
-   * @param params 登录表单数据
-   */
-  async function authLogin(
-    params: Recordable<any>,
-    onSuccess?: () => Promise<void> | void,
-  ) {
-    // 异步处理用户登录操作并获取 accessToken
-    let userInfo: null | UserInfo = null;
+  async function applyAccess() {
+    const token = access.accessToken;
+    const state = await getAccessApi();
+    if (!token || token !== access.accessToken) return;
+    const next = JSON.stringify(state);
+    if (access.isAccessChecked && signature === next) return;
+    const { accessibleMenus, accessibleRoutes } = await installMenus(
+      router,
+      state.menus,
+    );
+    if (token !== access.accessToken) return;
+    users.setUserInfo({
+      ...state.user,
+      userId: String(state.user.userId),
+      avatar: '',
+    });
+    access.setAccessMenus(accessibleMenus);
+    access.setAccessRoutes(accessibleRoutes);
+    access.setAccessCodes(state.codes);
+    access.setIsAccessChecked(true);
+    tabs.tabs = tabs.tabs.filter(
+      (tab) =>
+        router.resolve(tab.path).name === tab.name &&
+        (tab.name !== 'Recovery' || state.user.isSuper),
+    );
+    await tabs.updateCacheTabs();
+    signature = next;
+  }
+  function loadAccess() {
+    if (!loading) {
+      const pending = applyAccess().finally(() => {
+        if (loading === pending) loading = undefined;
+      });
+      loading = pending;
+    }
+    return loading;
+  }
+  async function refreshAccess() {
+    if (!access.accessToken) return;
+    const previousCodes = access.accessCodes.join('|');
+    await loadAccess();
+    const current = router.currentRoute.value;
+    const resolved = router.resolve(current.fullPath);
+    if (
+      resolved.name !== current.name ||
+      (current.name === 'Recovery' && !users.userInfo?.isSuper) ||
+      (current.name === 'EmptyAccess' &&
+        users.userInfo?.homePath !== current.path)
+    ) {
+      await router.replace(users.userInfo?.homePath || '/no-access');
+    } else if (previousCodes !== access.accessCodes.join('|')) {
+      // Vben checks v-access on mount. Refresh the still-authorized page after a button permission changes.
+      await tabs.refresh(router);
+    }
+  }
+  async function expire() {
+    resetAllStores();
+    resetAccessRoutes(router);
+    await router.replace(LOGIN_PATH);
+  }
+  async function authLogin(params: Record<string, any>) {
+    loginLoading.value = true;
     try {
-      loginLoading.value = true;
-      const { accessToken } = await loginApi(params);
-
-      // 如果成功获取到 accessToken
-      if (accessToken) {
-        // 将 accessToken 存储到 accessStore 中
-        accessStore.setAccessToken(accessToken);
-
-        // 获取用户信息并存储到 accessStore 中
-        const [fetchUserInfoResult, accessCodes] = await Promise.all([
-          fetchUserInfo(),
-          getAccessCodesApi(),
-        ]);
-
-        userInfo = fetchUserInfoResult;
-
-        userStore.setUserInfo(userInfo);
-        accessStore.setAccessCodes(accessCodes);
-
-        if (accessStore.loginExpired) {
-          accessStore.setLoginExpired(false);
-        } else {
-          onSuccess
-            ? await onSuccess?.()
-            : await router.push(
-                userInfo.homePath || preferences.app.defaultHomePath,
-              );
-        }
-
-        if (userInfo?.realName) {
-          ElNotification({
-            message: `${$t('authentication.loginSuccessDesc')}:${userInfo?.realName}`,
-            title: $t('authentication.loginSuccess'),
-            type: 'success',
-          });
-        }
-      }
+      const { accessToken } = await loginApi({
+        username: params.username,
+        password: params.password,
+      });
+      access.setAccessToken(accessToken);
+      await loadAccess();
+      await router.replace(users.userInfo?.homePath || '/no-access');
     } finally {
       loginLoading.value = false;
     }
-
-    return {
-      userInfo,
-    };
   }
-
-  async function logout(redirect: boolean = true) {
-    try {
-      await logoutApi();
-    } catch {
-      // 不做任何处理
-    }
-    resetAllStores();
-    accessStore.setLoginExpired(false);
-
-    // 回登录页带上当前路由地址
-    await router.replace({
-      path: LOGIN_PATH,
-      query: redirect
-        ? {
-            redirect: encodeURIComponent(router.currentRoute.value.fullPath),
-          }
-        : {},
-    });
+  async function logout() {
+    if (access.accessToken) await logoutApi();
+    await expire();
   }
-
-  async function fetchUserInfo() {
-    const userInfo = await getUserInfoApi();
-    userStore.setUserInfo(userInfo);
-    return userInfo;
-  }
-
   function $reset() {
+    signature = '';
+    loading = undefined;
     loginLoading.value = false;
   }
-
   return {
     $reset,
     authLogin,
-    fetchUserInfo,
+    expire,
+    loadAccess,
     loginLoading,
     logout,
+    refreshAccess,
   };
 });

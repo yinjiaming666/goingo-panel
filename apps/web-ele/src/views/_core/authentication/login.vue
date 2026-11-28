@@ -1,98 +1,74 @@
-<script lang="ts" setup>
-import type { VbenFormSchema } from '@vben/common-ui';
-import type { BasicOption } from '@vben/types';
+<script setup lang="ts">
+import type { FormInstance } from 'element-plus';
 
-import { computed, markRaw } from 'vue';
+import { reactive, ref } from 'vue';
 
-import { AuthenticationLogin, SliderCaptcha, z } from '@vben/common-ui';
-import { $t } from '@vben/locales';
+import {
+  ElButton,
+  ElCheckbox,
+  ElForm,
+  ElFormItem,
+  ElInput,
+} from 'element-plus';
 
 import { useAuthStore } from '#/store';
 
-defineOptions({ name: 'Login' });
+const auth = useAuthStore();
+const rememberKey = `REMEMBER_ME_USERNAME_${location.hostname}`;
+const savedUsername = localStorage.getItem(rememberKey) ?? '';
+const remember = ref(!!savedUsername);
+const form = reactive({ username: savedUsername, password: '' });
+const formRef = ref<FormInstance>();
+const rules = {
+  username: [{ required: true, message: '请输入账号' }],
+  password: [{ required: true, message: '请输入密码' }],
+};
 
-const authStore = useAuthStore();
-
-const MOCK_USER_OPTIONS: BasicOption[] = [
-  {
-    label: 'Super',
-    value: 'vben',
-  },
-  {
-    label: 'Admin',
-    value: 'admin',
-  },
-  {
-    label: 'User',
-    value: 'jack',
-  },
-];
-
-const formSchema = computed((): VbenFormSchema[] => {
-  return [
-    {
-      component: 'VbenSelect',
-      componentProps: {
-        options: MOCK_USER_OPTIONS,
-        placeholder: $t('authentication.selectAccount'),
-      },
-      fieldName: 'selectAccount',
-      label: $t('authentication.selectAccount'),
-      rules: z
-        .string()
-        .min(1, { message: $t('authentication.selectAccount') })
-        .optional()
-        .default('vben'),
-    },
-    {
-      component: 'VbenInput',
-      componentProps: {
-        placeholder: $t('authentication.usernameTip'),
-      },
-      dependencies: {
-        trigger(values, form) {
-          if (values.selectAccount) {
-            const findUser = MOCK_USER_OPTIONS.find(
-              (item) => item.value === values.selectAccount,
-            );
-            if (findUser) {
-              form.setValues({
-                password: '123456',
-                username: findUser.value,
-              });
-            }
-          }
-        },
-        triggerFields: ['selectAccount'],
-      },
-      fieldName: 'username',
-      label: $t('authentication.username'),
-      rules: z.string().min(1, { message: $t('authentication.usernameTip') }),
-    },
-    {
-      component: 'VbenInputPassword',
-      componentProps: {
-        placeholder: $t('authentication.password'),
-      },
-      fieldName: 'password',
-      label: $t('authentication.password'),
-      rules: z.string().min(1, { message: $t('authentication.passwordTip') }),
-    },
-    {
-      component: markRaw(SliderCaptcha),
-      fieldName: 'captcha',
-      rules: z.boolean().refine((value) => value, {
-        message: $t('authentication.verifyRequiredTip'),
-      }),
-    },
-  ];
-});
+async function submit() {
+  const valid = await formRef.value?.validate().catch(() => false);
+  if (!valid || auth.loginLoading) return;
+  try {
+    await auth.authLogin(form);
+    if (remember.value) localStorage.setItem(rememberKey, form.username);
+    else localStorage.removeItem(rememberKey);
+  } catch {
+    // The request interceptor displays the login error.
+  }
+}
 </script>
 
 <template>
-  <AuthenticationLogin
-    :form-schema="formSchema"
-    :loading="authStore.loginLoading"
-    @submit="authStore.authLogin"
-  />
+  <div class="flex flex-col gap-6">
+    <span class="text-2xl font-semibold">管理员登录</span>
+    <ElForm
+      ref="formRef"
+      :model="form"
+      :rules="rules"
+      label-position="top"
+      size="large"
+      @submit.prevent="submit"
+    >
+      <ElFormItem label="账号" prop="username">
+        <ElInput v-model="form.username" autocomplete="username" />
+      </ElFormItem>
+      <ElFormItem label="密码" prop="password">
+        <ElInput
+          v-model="form.password"
+          autocomplete="current-password"
+          show-password
+          type="password"
+        />
+      </ElFormItem>
+      <div class="flex flex-col gap-4">
+        <ElCheckbox v-model="remember">记住账号</ElCheckbox>
+        <ElButton
+          type="primary"
+          native-type="submit"
+          :loading="auth.loginLoading"
+        >
+          登录
+        </ElButton>
+      </div>
+    </ElForm>
+  </div>
 </template>
